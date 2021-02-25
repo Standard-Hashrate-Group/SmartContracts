@@ -2,7 +2,7 @@
 pragma solidity>=0.6.9;
 pragma experimental ABIEncoderV2;
 
-interface IMiningFarm{
+interface IMiningFarmPure{
     //stake to mine record splited by time period
     struct IStakeRecord{
         uint    timeKey;//when
@@ -44,20 +44,8 @@ interface IMiningFarm{
     function viewRoundSlot(uint timeKey) external view returns(ISlotInfoResult memory);
     function viewUserInfo(address account)external view returns(IUserInfoResult memory);
     
-    function viewGetTotalRewardBalanceInPool(address account) external view returns (uint256);   
-    function viewMiningRewardIn(uint day)external view returns (address,uint256,uint256);
-
-    function viewTotalStaked()external view returns(uint256);
-    function viewTotalUserMining()external view returns(uint256);
-    function viewTotalClaimedRewardFrom(address account)external view returns(uint256);
-    function viewTotalMinedRewardFrom(address account)external view returns(uint256);
-    function viewTotalRewardInPoolFrom(address account)external view returns(uint256);
-    function viewTotalRewardInPool()external view returns(uint256);
-
     function viewStakeRecord(address account,uint day)external view returns (uint,uint256,uint256,uint256,uint256);
-    function viewAllTimeTotalMined()external view returns(uint256);
     
-
     function apiWithdrawAllSToken()external;
     function apiWithdrawAllLockedSToken()external;
     function apiWithdrawLatestLockedSToken(uint256 amount)external;
@@ -66,8 +54,6 @@ interface IMiningFarm{
     function apiDepositToMining(uint256 amount)external;
     function apiDepositLockedToMining(uint256 amount) external;
 
-    function apiDepositRewardFromForTime(address account,uint256 amount,uint time) external;
-    function apiDepositRewardFrom(uint256 amount)external;
     function apiClaimAllReward(address account)external;
     function apiClaimAmountOfReward(address account,uint256 amount,bool reCalculate)external;
 }

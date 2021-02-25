@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.6.9;
+pragma solidity>=0.6.9;
 
-import "./interfaces/IMiningFarm.sol";
-import "./libraries/PeggyToken.sol";
-import "./3rdParty/@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import "./3rdParty/@openzeppelin/contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
-import "./StandardHashrateToken.sol";
+import "../interfaces/IMiningFarm.sol";
+import "../libraries/PeggyToken.sol";
+import "../../3rdParty/@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "../../3rdParty/@openzeppelin/contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
+import "../deprecated/v1/StandardHashrateToken.sol";
 
 contract FarmOperator is PeggyToken{
     using SafeERC20Upgradeable for IERC20Upgradeable;
@@ -33,7 +33,10 @@ contract FarmOperator is PeggyToken{
         _setupRole(FARM_OP_ROLE, _msgSender());
         _setupRole(STOKEN_OP_ROLE_MINT, _msgSender());
         _setupRole(STOKEN_OWNER_SAFE_TRANSFER, _msgSender());
-        COMMIT_ID = hex"242a0d8253d187f4894162a17c0a07881ce4eb1f";
+    }
+
+    function adminChangeCommitId(bytes32 cid)public onlyOwner{
+        COMMIT_ID = cid;
     }
 
     function adminChangeFarm(address farm)public onlyOwner{
@@ -65,10 +68,10 @@ contract FarmOperator is PeggyToken{
             __doAdminSTokenMintStart(account, to, amount);
         }
         if (hasRole(STOKEN_OP_ROLE_MINT_APPROVE, _msgSender())){
-            __doAdminSTokenMintApprove(account,to,amount);
+            __doAdminSTokenMintApprove(to,amount);
         }
         if (hasRole(STOKEN_OWNER_SAFE_TRANSFER,_msgSender())){
-            __doAdminSTokenOwnerSafeTransfer(account,to,amount);
+            __doAdminSTokenOwnerSafeTransfer(to,amount);
         }
     }
 
@@ -98,7 +101,7 @@ contract FarmOperator is PeggyToken{
         }
         adminSTokenMintStart(account,amount);
     }
-    function __doAdminSTokenMintApprove(address account, address to, uint256 amount) internal{
+    function __doAdminSTokenMintApprove( address to, uint256 amount) internal{
         if (address(_stokenContract)==address(0)){
             return;
         }
@@ -110,7 +113,7 @@ contract FarmOperator is PeggyToken{
             adminSTokenMintReject();
         }
     }
-    function __doAdminSTokenOwnerSafeTransfer(address account, address to, uint256 amount) internal{
+    function __doAdminSTokenOwnerSafeTransfer( address to, uint256 amount) internal{
         if (address(_stokenContract)==address(0) || to==address(0)){
             return;
         }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.6.9;
+pragma solidity>=0.6.9;
 
-import "../3rdParty/@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
+import "../../3rdParty/@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
 
 library TokenUtility{
     using SafeMathUpgradeable for uint256;
@@ -46,12 +46,48 @@ library TokenUtility{
         uint md = (time.sub(_farmStartedTime)).mod(_miniStakePeriodInSeconds);
         if (md==0) return time;
         return time.add(_miniStakePeriodInSeconds).sub(md);
+    }
 
-        // uint round = time.sub(_farmStartedTime).div(_miniStakePeriodInSeconds);
-        // uint end = _farmStartedTime.add(round.mul(_miniStakePeriodInSeconds));
-        // if (end < time){
-        //     return end.add(_miniStakePeriodInSeconds);
-        // }
-        // return end;
+    /**
+     * @dev cost amount of token among balanceFreeTime Keys indexed in records with recordCostRecords
+     * return cost keys and cost values one to one 
+     * LIFO
+     */
+    function calculateCostLockedWithoutSum(mapping (uint => uint256) storage records,uint256 toCost,uint[] memory keys,mapping (uint => uint256) storage recordsCost)internal view returns(uint256[] memory){
+        uint256[] memory cost = new uint256[](keys.length);
+        uint freeTime;
+        uint256 lockedBal;
+        uint256 alreadyCost;
+        uint256 lockedToMove;
+        for (uint256 ii=keys.length; ii > 0; --ii){
+            //_lockTimeUnitPerSeconds:days:25*7,rounds:25
+            if (toCost==0){
+                break;
+            }
+            freeTime = keys[ii-1];
+            lockedBal = records[freeTime];
+            alreadyCost = recordsCost[freeTime];
+            
+            lockedToMove = lockedBal.sub(alreadyCost,"alreadyCost>lockedBal");
+
+            if (lockedToMove >= toCost){
+                cost[ii-1] = toCost;
+                toCost = 0;
+            }else{
+                cost[ii-1] = lockedToMove;
+                toCost = toCost.sub(lockedToMove,"lockedToMove>toCost");
+            }
+        }
+        require(toCost==0,"require toCost full consumed");
+        return cost;
+    }
+
+    function calculateFreeAmount(uint freeTime,uint256 lockedBal,uint256 _lockRounds,uint256 _lockTime,uint256 _lockTimeUnitPerSeconds)internal view returns(uint256,uint){
+        uint remainTime = freeTime - block.timestamp;
+        uint passedRound = _lockRounds.sub( 
+            _lockRounds.mul(remainTime)
+            .div(_lockTime.mul(_lockTimeUnitPerSeconds)) 
+        );
+        return (lockedBal.mul(passedRound).div(_lockRounds),passedRound);
     }
 }

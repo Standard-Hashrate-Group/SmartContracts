@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.6.9;
+pragma solidity>=0.6.9;
 
-import "./3rdParty/@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
-import "./libraries/LinearReleaseToken.sol";
-import "./libraries/IFarm.sol";
+import "../../3rdParty/@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
+import "./LinearReleaseTokenV2.sol";
+import "../interfaces/IFarm.sol";
 
-contract StandardHashrateToken is LinearReleaseToken{
+contract StandardHashrateTokenV2 is LinearReleaseTokenV2{
     using SafeMathUpgradeable for uint256;
     using TokenUtility for *;
     function initialize(string memory name, string memory symbol) public override initializer{
@@ -46,7 +46,7 @@ contract StandardHashrateToken is LinearReleaseToken{
     function transferLockedFromFarmWithRecord(address recipient,
         uint256 amount,uint[] memory tobeCostKeys,uint256[] memory tobeCost) public onlyFarm{
         address farm = address(_farmContract);
-        require(_linearLockedBalanceOf(farm)>=amount,"transfer locked amount exceeds farm's locked amount");
+        require(_timeLockedBalances[farm]>=amount,"transfer locked amount exceeds farm's locked amount");
         require(recipient != address(0), "Locked ERC20: transfer to the zero address");
         require(balanceOf(farm)>=amount,"farm locked ERC20: transfer amount exceeds balance 3");
 

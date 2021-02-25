@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.6.9;
+pragma solidity>=0.6.9;
 
-import "../3rdParty/@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
-import "./PeggyToken.sol";
-import "./TokenUtility.sol";
+import "../../3rdParty/@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
+import "../libraries/PeggyToken.sol";
+import "../libraries/TokenUtility.sol";
 import "../interfaces/ISTokenERC20.sol";
 
-contract LinearReleaseToken is PeggyToken,ISTokenERC20{
+contract LinearReleaseTokenV2 is PeggyToken,ISTokenERC20{
     using SafeMathUpgradeable for uint256;
     using TokenUtility for *;
     /**
@@ -114,11 +114,11 @@ contract LinearReleaseToken is PeggyToken,ISTokenERC20{
         }
     }
 
-    function mintWithTimeLock(address account, uint256 amount) public virtual onlyOwner{
+    function mintWithTimeLock(address account, uint256 amount) public virtual{
         require(hasRole(MINTER_ROLE, _msgSender()), "LinearReleaseToken: must have minter role to mint");
         require(account != address(0), "ERC20: mint to the zero address");
         if (_lockTime>0){
-            uint freeTime = now + _lockTime * _lockTimeUnitPerSeconds;
+            uint freeTime = block.timestamp + _lockTime * _lockTimeUnitPerSeconds;
             _timeKeysPush(account, freeTime);
 
             mapping (uint => uint256) storage records = _timeLockedBalanceRecords[account];
@@ -135,7 +135,6 @@ contract LinearReleaseToken is PeggyToken,ISTokenERC20{
     function _linearLockedBalanceOf(address account) public view returns (uint256){
         return _timeLockedBalances[account];
     }
-
     /**
      * @dev return how much free tokens the address could be used
      */
@@ -160,17 +159,21 @@ contract LinearReleaseToken is PeggyToken,ISTokenERC20{
             lockedBal = records[freeTime];
             alreadyCost = recordsCost[freeTime];
             freeAmount = 0;
-            if (freeTime<=now){
+            if (freeTime<=block.timestamp){
                 freeAmount = lockedBal;
             }else{
                 //to calculate how much rounds still remain
-                uint256 timePerRound = _lockTime.div(_lockRounds);
-                uint start = freeTime - _lockTime * _lockTimeUnitPerSeconds;
-                uint passed = now - start;
-                uint passedRound = passed.div(timePerRound * _lockTimeUnitPerSeconds);
-                freeAmount = lockedBal.mul(passedRound).div(_lockRounds);
+                // uint256 timePerRound = _lockTime.div(_lockRounds);
+                // uint start = freeTime - _lockTime * _lockTimeUnitPerSeconds;
+                // uint passed = block.timestamp - start;
+                // uint passedRound = passed.div(timePerRound * _lockTimeUnitPerSeconds);
+                uint passedRound;
+                (freeAmount,passedRound) = freeTime.calculateFreeAmount(lockedBal,
+                    _lockRounds,_lockTime,_lockTimeUnitPerSeconds);
             }
-            allFreed = allFreed.add(freeAmount.sub(alreadyCost,"alreadyCost>freeAmount"));
+            if (freeAmount>alreadyCost){
+                allFreed = allFreed.add(freeAmount.sub(alreadyCost,"alreadyCost>freeAmount"));
+            }
         }
         if (allFreed <= lockedBalance){
             return balance.sub(lockedBalance.sub(allFreed,"allFreed>lockedBalance"),"balance limited");
@@ -237,7 +240,7 @@ contract LinearReleaseToken is PeggyToken,ISTokenERC20{
             //amount less than pure unlocked balance
             return;
         }
-
+        //following condition amount > totalFree
         //following step indicates that user want to send part of locked balances which was already unlocked during passed time
         //remain should be no greater than freed amounts
         uint256 remain = amount.sub(totalFree,"totalFree>amount");
@@ -250,59 +253,44 @@ contract LinearReleaseToken is PeggyToken,ISTokenERC20{
         mapping (uint => uint256) storage records = _timeLockedBalanceRecords[account];
         mapping (uint => uint256) storage recordsCost = _timeLockedBalanceRecordsCost[account];
     
+        _timeLockedBalances[account] = _timeLockedBalances[account].sub(remain,"toBeCost>_timeLockedBalances");
+        _totalReleasedSupplyReleaseByTimeLock = _totalReleasedSupplyReleaseByTimeLock.add(remain);
         // (uint256 allFreed,uint256[] memory cost) = records
         //     .calculateCostLockedAlreadyFreed(_lockTime,_lockRounds,_lockTimeUnitPerSeconds,remain,keys,recordsCost);
+
         uint256 allFreed = 0;
-        uint256[] memory cost = new uint256[](keys.length);
-        // uint freeTime =0;
-        // uint256 lockedBal = 0;
-        //uint256 alreadyCost = 0;
-        uint256 freeAmount = 0;
-        // uint256 roundPerDay = 0;
-        // uint start = 0;
-        // uint passed;
-        // uint passedRound;
-        uint256 freeToMove;
         uint256 toBeCost = remain;
         for (uint256 ii=0; ii < keys.length; ++ii){
-            //_lockTimeUnitPerSeconds:days:25*7,rounds:25
             if (remain==0){
                 break;
             }
-            
-            freeAmount = 0;
-            if (keys[ii]<=now){
-                freeAmount = records[keys[ii]];
+            uint freeTime = keys[ii];
+            uint256 freeAmount = 0;
+            if (freeTime<=block.timestamp){
+                freeAmount = records[freeTime];
             }else{
                 //to calculate how much rounds still remain
-                
-                freeAmount = records[keys[ii]].mul(
-                    (now - (keys[ii] - _lockTime * _lockTimeUnitPerSeconds))
-                    .div(_lockTime.div(_lockRounds) * _lockTimeUnitPerSeconds)).div(_lockRounds);
+                 uint passedRound;
+                (freeAmount,passedRound) = freeTime.calculateFreeAmount(records[freeTime],
+                    _lockRounds,_lockTime,_lockTimeUnitPerSeconds);
             }
-            freeToMove = freeAmount.sub(recordsCost[keys[ii]],"already cost > freeAmount");
-            allFreed = allFreed.add(freeToMove);
-            if (freeToMove >= remain){
-                cost[ii] = remain;
-                remain = 0;
-            }else{
-                cost[ii] = freeToMove;
-                remain = remain.sub(freeToMove,"freeToMove>remain");
+
+            {
+                uint256 alreadyCost = recordsCost[freeTime];
+                uint256 freeToMove = freeAmount.sub(alreadyCost,"already cost > freeAmount");
+                allFreed = allFreed.add(freeToMove);
+                if (freeToMove >= remain){
+                    recordsCost[freeTime] = alreadyCost.add(remain);
+                    remain = 0;
+                }else{
+                    recordsCost[freeTime] = alreadyCost.add(freeToMove);
+                    remain = remain.sub(freeToMove,"freeToMove>remain");
+                }
             }
+            
         }
-
-
         require(toBeCost <= allFreed,"user has locked amount,sending amounts exceeds the free amounts");
         //passed lock amount striction check,need to update cost,if not passed, we shouldn;t update the cost array
-
-        for (uint256 ii=0; ii < keys.length; ++ii){
-            uint freeTime = keys[ii];
-            uint256 moreCost = cost[ii];
-            recordsCost[freeTime] = recordsCost[freeTime].add(moreCost);
-        }
-
-        _timeLockedBalances[account] = _timeLockedBalances[account].sub(toBeCost,"toBeCost>_timeLockedBalances");
-        _totalReleasedSupplyReleaseByTimeLock = _totalReleasedSupplyReleaseByTimeLock.add(toBeCost);
     }
 
     
@@ -311,39 +299,43 @@ contract LinearReleaseToken is PeggyToken,ISTokenERC20{
      * @dev clear our expired and used out mint records to decrease everytime gas consumption when we are sending coins
      *
      */
+    // function decreaseGasConsumptionByClearExpiredRecords(address account) public nonReentrant returns (uint256){
+    //     uint[] memory keys = _balanceFreeTimeKeys[account];
+    //     uint[] memory toBeClear = new uint[](keys.length);
+    //     uint256 cleared = 0;
+    //     mapping (uint => uint256) storage records = _timeLockedBalanceRecords[account];
+    //     mapping (uint => uint256) storage recordsCost = _timeLockedBalanceRecordsCost[account];
+    //     for (uint256 ii=0; ii < keys.length; ++ii){
+    //         uint freeTime = keys[ii];
+    //         uint256 lockedBal = records[freeTime];
+    //         uint256 alreadyCost = recordsCost[freeTime];
+    //         if (lockedBal == alreadyCost){
+    //             //this minted coins were all cost, so we can remove this record
+    //             toBeClear[ii] = 2;
+    //             delete records[freeTime];
+    //             delete recordsCost[freeTime];
+    //             cleared = cleared.add(1);
+    //         }
+    //     }
+    //     for (uint256 ii=0; ii < keys.length; ++ii){
+    //         uint shouldClear = toBeClear[ii];
+    //         if (shouldClear>1){
+    //             uint timeKey = keys[ii];
+    //             _timeKeysRemove(account, timeKey);
+    //         }
+    //     }
+    //     return cleared;
+    // }
     function decreaseGasConsumptionByClearExpiredRecords(address account) public nonReentrant returns (uint256){
-        uint[] memory keys = _balanceFreeTimeKeys[account];
-        uint[] memory toBeClear = new uint[](keys.length);
-        uint256 cleared = 0;
-        mapping (uint => uint256) storage records = _timeLockedBalanceRecords[account];
-        mapping (uint => uint256) storage recordsCost = _timeLockedBalanceRecordsCost[account];
-        for (uint256 ii=0; ii < keys.length; ++ii){
-            uint freeTime = keys[ii];
-            uint256 lockedBal = records[freeTime];
-            uint256 alreadyCost = recordsCost[freeTime];
-            if (lockedBal == alreadyCost){
-                //this minted coins were all cost, so we can remove this record
-                toBeClear[ii] = 2;
-                delete records[freeTime];
-                delete recordsCost[freeTime];
-                cleared = cleared.add(1);
-            }
-        }
-        for (uint256 ii=0; ii < keys.length; ++ii){
-            uint shouldClear = toBeClear[ii];
-            if (shouldClear>1){
-                uint timeKey = keys[ii];
-                _timeKeysRemove(account, timeKey);
-            }
-        }
-        return cleared;
+        return 0;
     }
 
     function transferLockedFrom(address from,address to,uint256 amount) external nonReentrant override returns(uint[] memory,uint256[] memory) {
+        require(to==_msgSender(),"only who receive locked tokens have right to call this method");
         (uint[] memory freeTimeIndex,uint256[] memory locked) = _transferLocked(from, to, amount);
-        _approveLocked(from,_msgSender(),
-            _lockedAllowances[from][_msgSender()]
-            .sub(amount,"Locked ERC20: transfer locked amount exceeds allowance"));
+        _approveLocked(from,to,
+            _lockedAllowances[from][to].sub(amount,"Locked ERC20: transfer locked amount exceeds allowance")
+        );
         return (freeTimeIndex,locked);
     }
 
@@ -351,8 +343,6 @@ contract LinearReleaseToken is PeggyToken,ISTokenERC20{
         (uint[] memory freeTimeIndex,uint256[] memory locked) = _transferLocked(_msgSender(), to, amount);
         return (freeTimeIndex,locked);
     }
-
-
 
     function approveLocked(address spender,uint256 amount) external nonReentrant override returns(bool){
         _approveLocked(_msgSender(), spender, amount);
@@ -374,37 +364,96 @@ contract LinearReleaseToken is PeggyToken,ISTokenERC20{
         require(account != address(0), "Locked ERC20: transfer from the zero address");
         require(recipient != address(0), "Locked ERC20: transfer to the zero address");
         require(balanceOf(account)>=amount,"Locked ERC20: transfer amount exceeds balance 1");
-        require(_linearLockedBalanceOf(account)>=amount,"Locked ERC20: transfer amount exceeds balance 2 of locked");
+        require(_timeLockedBalances[account]>=amount,"Locked ERC20: transfer amount exceeds balance 2 of locked");
         
         //the following update locked records
         uint[] memory keys = _balanceFreeTimeKeys[account];
         mapping (uint => uint256) storage records = _timeLockedBalanceRecords[account];
         mapping (uint => uint256) storage recordsCost = _timeLockedBalanceRecordsCost[account];
-        (uint256 lockedFreeToMove,uint256[] memory cost) = records.calculateCostLocked(amount,keys,recordsCost);
-        require(amount <= lockedFreeToMove,"sending locked amounts exceeds the locked amounts");
+        uint256[] memory cost = records.calculateCostLockedWithoutSum(amount,keys,recordsCost);
         
         _timeLockedBalances[account] = _timeLockedBalances[account].sub(amount, "Locked ERC20: transfer amount exceeds locked balance");
         _transferDirect(account,recipient,amount);
-        _timeLockedBalances[recipient] = _timeLockedBalances[recipient].add(amount);
-        
+           
         mapping (uint => uint256) storage rcpRecords = _timeLockedBalanceRecords[recipient];
-        uint[] memory index = new uint[](keys.length);
-        for (uint256 ii=0; ii < keys.length; ++ii){
-            uint freeTime = keys[ii];
-            index[ii] = freeTime;
-            uint256 moreCost = cost[ii];
-            if (moreCost>0){
-                _timeKeysPush(recipient, freeTime);
-                //don't update sender's locked recordsCost but decrease it's lockedbal directly
-                records[freeTime] = records[freeTime].sub(moreCost,"moreCost>records[freeTime]");
-                //update recipient's locked records
-                rcpRecords[freeTime] = rcpRecords[freeTime].add(moreCost);
-            }    
+        mapping (uint => uint256) storage rcpRecordsCost = _timeLockedBalanceRecordsCost[recipient];
+        uint256 rcpTotalLocked = 0;
+        uint256 rcpFreed = 0;
+        for (uint256 ii=keys.length; ii > 0; --ii){
+            uint256 willTransfer = cost[ii-1];
+            if (willTransfer==0){
+                break;
+            }
+            uint freeTime = keys[ii-1];
+            if (freeTime<=block.timestamp){
+                //if coins was free, just do nothing
+                //no need to lock recipient's coins,willTransfer coins set free
+                _totalReleasedSupplyReleaseByTimeLock = _totalReleasedSupplyReleaseByTimeLock.add(willTransfer);
+                continue;
+            }
+            _timeKeysPush(recipient, freeTime);
+            uint passedRound;
+
+            uint256 tmpAmount;
+            //freed coins among this batch
+            (tmpAmount,passedRound) = freeTime.calculateFreeAmount(records[freeTime], _lockRounds, _lockTime, _lockTimeUnitPerSeconds);
+            //remain freed coins among this batch 
+            tmpAmount = tmpAmount.sub(recordsCost[freeTime]);
+            if (tmpAmount>=willTransfer){
+                //from address view it like transfered free amount coins unfreed coins
+                recordsCost[freeTime] = recordsCost[freeTime].add(willTransfer);
+                //no need to lock recipient's coins,willTransfer coins set free
+                _totalReleasedSupplyReleaseByTimeLock = _totalReleasedSupplyReleaseByTimeLock.add(willTransfer);
+                continue;
+            }
+            //freeAmount<willTransfer, willTransfer = freed + still_locked
+            //freeAmount coins are set free
+            _totalReleasedSupplyReleaseByTimeLock = _totalReleasedSupplyReleaseByTimeLock.add(tmpAmount);
+            {
+                tmpAmount = willTransfer.sub(tmpAmount);
+                //need lock recipients' coins in a total way at the same time
+                rcpTotalLocked = rcpTotalLocked.add(tmpAmount);
+                {
+                    (uint256 toStillLocked,uint256 freed) = __reduceAccountFreedCoins(passedRound,freeTime,rcpRecords,rcpRecordsCost);
+                    tmpAmount = tmpAmount.add(toStillLocked);
+                    rcpFreed = rcpFreed.add(freed);
+                }
+                __toLockAccountCoinsWithPassedRound(tmpAmount,passedRound,freeTime,rcpRecords,rcpRecordsCost);
+                
+                tmpAmount = records[freeTime].sub(recordsCost[freeTime]).sub(willTransfer);
+                __toLockAccountCoinsWithPassedRound(tmpAmount,passedRound,freeTime,records,recordsCost);
+            }
+            
         }
         emit LockedTransfer(account,recipient,amount);
-        return (index,cost);
+        //in order to save gas free,access storage at least
+        amount = _timeLockedBalances[recipient];
+        amount = amount.add(rcpTotalLocked);
+        amount = amount.sub(rcpFreed);
+        _timeLockedBalances[recipient] = amount;
+        return (keys,cost);
     }
 
+    function __toLockAccountCoinsWithPassedRound(uint256 remainLocked,uint passedRound,uint256 freeTime,
+            mapping (uint => uint256) storage records,
+            mapping (uint => uint256) storage recordsCost)internal{
+        uint256 totalLocked = remainLocked.mul(_lockRounds).div(_lockRounds.sub(passedRound));
+        records[freeTime] = totalLocked;
+        recordsCost[freeTime] = totalLocked.sub(remainLocked);
+    }
+
+    function __reduceAccountFreedCoins(uint passedRound,uint256 freeTime,
+            mapping (uint => uint256) storage records,
+            mapping (uint => uint256) storage recordsCost)internal returns(uint256,uint256){
+        uint256 freeAmount = records[freeTime].mul(passedRound).div(_lockRounds);
+        freeAmount = freeAmount.sub(recordsCost[freeTime]);
+        //freeAmount coins set to free
+        _totalReleasedSupplyReleaseByTimeLock = _totalReleasedSupplyReleaseByTimeLock.add(freeAmount);
+        // _timeLockedBalances[recipient] = _timeLockedBalances[recipient].sub(freeAmount);
+
+        uint256 remainLocked = records[freeTime].sub(recordsCost[freeTime]).sub(freeAmount);
+        return (remainLocked,freeAmount);
+    }
 }
 
 

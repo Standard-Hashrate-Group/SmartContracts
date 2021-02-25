@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.6.9;
+pragma solidity>=0.6.9;
 
-// import "../3rdParty/@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import "../3rdParty/@openzeppelin/contracts-upgradeable/GSN/ContextUpgradeable.sol";
-import "../3rdParty/@openzeppelin/contracts-upgradeable/proxy/Initializable.sol";
-import "../3rdParty/@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+// import "../../3rdParty/@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "../../3rdParty/@openzeppelin/contracts-upgradeable/GSN/ContextUpgradeable.sol";
+import "../../3rdParty/@openzeppelin/contracts-upgradeable/proxy/Initializable.sol";
+import "../../3rdParty/@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-import "../3rdParty/@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import "../3rdParty/@openzeppelin/contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
+import "../../3rdParty/@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "../../3rdParty/@openzeppelin/contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
 
 // File: openzeppelin-solidity/contracts/ownership/Claimable.sol
 
